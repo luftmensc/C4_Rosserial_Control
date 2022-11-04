@@ -1,0 +1,146 @@
+#include <Arduino.h>
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+#include <HX711.h>
+
+#define vspec_pin 7
+
+
+// HX711 circuit wiring
+const int LOADCELL_DOUT_PIN = 4;
+const int LOADCELL_SCK_PIN = 5;
+int flag=0;
+
+HX711 scale;
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+unsigned long t = 0;
+
+float rescons = 6;
+float ardcons = 0.0048875855327;
+float base = 0;
+char voltage_char[10];
+char agirlik_char[10];
+
+int RosMessage=0;
+
+//ROS
+#include <ros.h>
+#include <std_msgs/Int32.h>
+#include <std_msgs/String.h>
+
+void sensor_id(const std_msgs::Int32& msg)
+{
+  RosMessage = msg.data;
+ 
+}
+ros::NodeHandle nh;
+std_msgs::String sensor_msg;
+ros::Subscriber<std_msgs::Int32> sub("sensor_state", &sensor_id);
+ros::Publisher pub("sensor_output",&sensor_msg);
+
+
+void setup() {
+  nh.getHardware()->setBaud(9600);
+  nh.initNode();
+  nh.subscribe(sub);
+  nh.advertise(pub);
+  pinMode(vspec_pin,OUTPUT);
+  
+  scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+  scale.set_scale(21.5);
+  scale.tare();    
+  
+  pinMode(2, OUTPUT);
+  pinMode(A0, INPUT);
+  //Serial.begin(9600);
+  digitalWrite(2, LOW);
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+
+  
+}
+
+void loop() {
+
+ 
+   delay(100);
+   nh.spinOnce();
+  if(RosMessage==1){
+    
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    base =( analogRead(A0) * ardcons * rescons*1.045);
+
+    //Serial.println(base);
+    dtostrf(base,3,2,voltage_char);
+    sensor_msg.data = voltage_char;
+    pub.publish(&sensor_msg);
+
+    lcd.clear();
+    lcd.print("Voltage: ");
+    lcd.print(base);
+    delay(100);
+    if (base <= 0.2) {
+     digitalWrite(2, !digitalRead(2));
+     delay(400);
+  }
+    
+}
+  else if(RosMessage==2){
+    if(flag==0){
+      nh.spinOnce();
+      sensor_msg.data = "HX711 Measuring The Wait Process Is Starting ;)";
+      pub.publish(&sensor_msg);
+    
+      scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+    
+      scale.set_scale(21.9);
+      scale.tare();    
+  
+      sensor_msg.data = "Tare and calibration is done. Next values are what you are looking for :)";
+      pub.publish(&sensor_msg);
+      flag=1;
+    }
+
+      dtostrf(scale.get_units(10),5,2,agirlik_char);
+      sensor_msg.data = agirlik_char;
+      pub.publish(&sensor_msg);
+      delay(100);
+      nh.spinOnce();
+      lcd.clear();
+    
+      
+  }
+    else if(RosMessage==3){
+      delay(1);
+      nh.spinOnce();
+      scale.tare();    
+      sensor_msg.data = "Tare and calibration is done.)";
+      pub.publish(&sensor_msg);
+      RosMessage=2;
+      delay(100);
+
+      lcd.clear();
+  }
+
+  else if(RosMessage==4){
+      delay(10);
+      digitalWrite(vspec_pin,HIGH);
+      nh.spinOnce();
+       lcd.clear();
+      
+  }
+  else if(RosMessage==5){
+      delay(10);
+      digitalWrite(vspec_pin,LOW);
+      nh.spinOnce();
+       lcd.clear();
+  }
+  
+}
